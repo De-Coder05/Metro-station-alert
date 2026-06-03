@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f0f23">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Get woken up when your metro station is near — perfect when you have earphones in or fall asleep.">
+  <title>Metro Alert</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════ SETUP SCREEN ══ -->
+<div id="setup-screen" class="screen active">
+
+  <div class="header">
+    <span class="header-icon">🚇</span>
+    <h1>Metro Alert</h1>
+    <p class="subtitle">Wake up at your station — even with earphones in</p>
+  </div>
+
+  <div class="setup-card">
+
+    <!-- Step indicator -->
+    <div class="step-indicator">
+      <div class="step active" id="step-1-dot">1</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-2-dot">2</div>
+      <div class="step-line"></div>
+      <div class="step" id="step-3-dot">3</div>
+    </div>
+
+    <!-- ── Step 1: City ── -->
+    <div class="step-content active" id="step-1">
+      <h2>Select your city</h2>
+      <div class="city-grid" id="city-grid"></div>
+    </div>
+
+    <!-- ── Step 2: Station ── -->
+    <div class="step-content" id="step-2">
+      <h2>Destination station</h2>
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="station-search" placeholder="Type station name…" autocomplete="off" spellcheck="false">
+        <button class="clear-btn" id="clear-search" hidden aria-label="Clear">✕</button>
+      </div>
+      <div class="line-filter" id="line-filter"></div>
+      <div class="station-list" id="station-list"></div>
+      <button class="btn-back" id="back-to-step1">← Change city</button>
+    </div>
+
+    <!-- ── Step 3: Settings ── -->
+    <div class="step-content" id="step-3">
+      <h2>Alert settings</h2>
+
+      <div id="selected-station-display" class="selected-station-display"></div>
+
+      <div class="setting-group">
+        <span class="setting-label">Alert me when I'm within</span>
+        <div class="radius-options">
+          <button class="radius-btn" data-radius="300">300 m</button>
+          <button class="radius-btn active" data-radius="500">500 m</button>
+          <button class="radius-btn" data-radius="800">800 m</button>
+          <button class="radius-btn" data-radius="1000">1 km</button>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <span class="setting-label">Early warning</span>
+        <div class="early-warning-info" id="early-warning-display">1,000 m before your station</div>
+      </div>
+
+      <div class="setting-group">
+        <span class="setting-label">Alert options</span>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">🔔 Sound alarm</div>
+            <div class="toggle-desc">Plays through earphones &amp; speakers</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="toggle-sound" checked><span class="toggle-slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">📳 Vibration</div>
+            <div class="toggle-desc">Repeating pattern until dismissed</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="toggle-vibrate" checked><span class="toggle-slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">🌙 Keep screen on</div>
+            <div class="toggle-desc">Prevent phone from sleeping</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="toggle-wakelock" checked><span class="toggle-slider"></span></label>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="start-tracking">
+        <span>🔔</span> Start Alert
+      </button>
+      <button class="btn-back" id="back-to-step2">← Change station</button>
+    </div>
+
+  </div><!-- .setup-card -->
+</div><!-- #setup-screen -->
+
+
+<!-- ═══════════════════════════════════════ TRACKING SCREEN ══ -->
+<div id="tracking-screen" class="screen">
+
+  <div class="tracking-header">
+    <button class="stop-btn" id="stop-tracking">✕ Stop</button>
+    <div class="tracking-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Locating…</span>
+    </div>
+  </div>
+
+  <div class="map-container" id="map-container">
+    <div id="map"></div>
+  </div>
+
+  <div class="distance-card">
+    <div class="destination-name" id="destination-name"></div>
+
+    <div class="tracking-metrics">
+      <!-- Ring -->
+      <div class="distance-ring-wrap">
+        <svg class="distance-ring" viewBox="0 0 110 110">
+          <circle class="ring-bg" cx="55" cy="55" r="46"/>
+          <circle class="ring-progress" id="ring-progress" cx="55" cy="55" r="46"/>
+        </svg>
+        <div class="ring-text">
+          <span class="ring-distance" id="ring-distance">—</span>
+          <span class="ring-unit" id="ring-unit">m</span>
+        </div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics-right">
+        <div class="metric-item">
+          <div class="metric-label">Est. arrival</div>
+          <div class="metric-value" id="eta-value">—</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">GPS accuracy</div>
+          <div class="metric-value" id="accuracy-value">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert-arm-badge" id="alert-arm-badge" hidden>
+      <div class="arm-dot"></div>
+      Alarm armed · alerting at <span id="alert-radius-display"></span>
+    </div>
+  </div>
+
+</div><!-- #tracking-screen -->
+
+
+<!-- ════════════════════════════════════════ ALERT OVERLAY ══ -->
+<div id="alert-overlay" class="overlay hidden">
+  <div class="overlay-inner">
+    <div class="alert-pulse-ring" id="alert-icon">⚠️</div>
+    <h1 class="overlay-title" id="alert-title">APPROACHING</h1>
+    <p class="overlay-subtitle" id="alert-msg">Your station is near.</p>
+    <div class="overlay-station" id="alert-station"></div>
+    <div class="overlay-distance" id="alert-dist"></div>
+    <button class="btn-dismiss" id="btn-dismiss">DISMISS ALARM</button>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════ NOTIFICATION PROMPT ══ -->
+<div id="notif-prompt" class="notif-banner hidden">
+  <p class="notif-text">Enable notifications so alerts work when screen is off</p>
+  <div class="notif-actions">
+    <button id="notif-deny">Skip</button>
+    <button id="notif-allow" class="btn-allow-notif">Allow</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════ PWA INSTALL BANNER ══ -->
+<div id="install-banner" class="notif-banner hidden">
+  <p class="notif-text">Add Metro Alert to home screen for offline use</p>
+  <div class="notif-actions">
+    <button id="install-deny">Later</button>
+    <button id="install-allow" class="btn-allow-notif">Install</button>
+  </div>
+</div>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLc=" crossorigin=""></script>
+<script src="js/stations.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
