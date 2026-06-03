@@ -276,6 +276,7 @@ body {
   cursor: pointer;
   width: 100%;
   text-align: left;
+  color: var(--text);
   position: relative;
   overflow: hidden;
   transition: border-color 0.2s, background 0.2s, transform 0.15s;
@@ -383,6 +384,7 @@ body {
   border: 1.5px solid var(--border);
   background: var(--glass);
   color: var(--text-2);
+  font-family: inherit;
   font-size: 12px;
   font-weight: 600;
   font-family: inherit;
@@ -423,6 +425,7 @@ body {
   border-right: none;
   border-top: none;
   font-family: inherit;
+  color: var(--text);
   transition: background 0.15s;
   animation: staggerIn 0.3s var(--ease-out) both;
 }
@@ -526,6 +529,7 @@ mark {
   border: 1.5px solid var(--border);
   background: var(--glass);
   color: var(--text-2);
+  font-family: inherit;
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
