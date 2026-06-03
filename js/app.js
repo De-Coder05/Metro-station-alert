@@ -1,11 +1,10 @@
-/* === Metro Alert — Main App === */
+/* ── Metro Alert — App Logic ───────────────────────────────── */
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────
 const state = {
   city: null,
   station: null,
-  alertRadius: 500,      // metres — trigger alarm
-  warnRadius: 1000,      // metres — early vibration/notification
+  alertRadius: 500,
   sound: true,
   vibrate: true,
   wakeLock: true,
@@ -16,129 +15,164 @@ const state = {
   alarmPlaying: false,
   warningFired: false,
   alarmFired: false,
-  currentLat: null,
-  currentLng: null,
-  currentDist: Infinity,
   audioCtx: null,
   alarmTimer: null,
   map: null,
   userMarker: null,
   destMarker: null,
   routeLine: null,
+  currentStep: 1,
 };
 
-// ── DOM refs ─────────────────────────────────────────────────────────────────
+// ── DOM shorthand ──────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const setupScreen   = $('setup-screen');
-const trackingScreen = $('tracking-screen');
-const overlay       = $('alert-overlay');
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+const setupScreen    = $('setup-screen');
+const trackingScreen = $('tracking-screen');
+const overlay        = $('alert-overlay');
+
+// ── Init ───────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   loadPrefs();
   buildCityGrid();
   bindSetupEvents();
   bindTrackingEvents();
-  bindOverlayEvents();
+  $('btn-dismiss').addEventListener('click', dismissAlert);
   registerSW();
   maybeShowInstallBanner();
+  syncSettingsUI();
 });
 
-// ── Service Worker ────────────────────────────────────────────────────────────
+// ── Service Worker ─────────────────────────────────────────────
 function registerSW() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 }
 
-// ── Preferences (localStorage) ────────────────────────────────────────────────
+// ── Prefs ──────────────────────────────────────────────────────
 function loadPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem('metro-prefs') || '{}');
     if (p.alertRadius) state.alertRadius = p.alertRadius;
-    if (typeof p.sound !== 'undefined') state.sound = p.sound;
+    if (typeof p.sound   !== 'undefined') state.sound   = p.sound;
     if (typeof p.vibrate !== 'undefined') state.vibrate = p.vibrate;
     if (typeof p.wakeLock !== 'undefined') state.wakeLock = p.wakeLock;
   } catch (_) {}
 }
-
 function savePrefs() {
   try {
     localStorage.setItem('metro-prefs', JSON.stringify({
-      alertRadius: state.alertRadius,
-      sound: state.sound,
-      vibrate: state.vibrate,
-      wakeLock: state.wakeLock,
+      alertRadius: state.alertRadius, sound: state.sound,
+      vibrate: state.vibrate, wakeLock: state.wakeLock,
     }));
   } catch (_) {}
 }
 
-// ── Step navigation ───────────────────────────────────────────────────────────
+// ── Panel navigation (directional slide) ──────────────────────
 function goToStep(n) {
-  [1, 2, 3].forEach(i => {
-    $(`step-${i}`).classList.toggle('active', i === n);
-    const dot = $(`step-${i}-dot`);
-    dot.classList.remove('active', 'done');
-    if (i < n) dot.classList.add('done');
-    else if (i === n) dot.classList.add('active');
-    const line = document.querySelectorAll('.step-line')[i - 1];
-    if (line) line.classList.toggle('done', i < n);
-  });
+  const dir = n > state.currentStep ? 'forward' : 'back';
+
+  // Hide current
+  const cur = $(`step-${state.currentStep}`);
+  cur.classList.remove('active', 'back');
+
+  // Show next
+  const next = $(`step-${n}`);
+  next.classList.remove('active', 'back');
+  // force reflow so animation re-triggers
+  void next.offsetWidth;
+  next.classList.add('active');
+  if (dir === 'back') next.classList.add('back');
+
+  state.currentStep = n;
+
+  // Progress bar
+  $('progress-bar').style.width = `${Math.round((n / 3) * 100)}%`;
 }
 
-// ── City grid ─────────────────────────────────────────────────────────────────
-function buildCityGrid() {
-  const grid = $('city-grid');
-  grid.innerHTML = Object.entries(METRO_SYSTEMS).map(([key, c]) => `
-    <button class="city-card" data-city="${key}">
-      <span class="city-icon">${c.icon}</span>
-      <span class="city-name">${c.name}</span>
-      <span class="city-meta">${c.meta}</span>
-    </button>
-  `).join('');
+// ── City Grid ──────────────────────────────────────────────────
+const CITY_LINE_COLORS = {
+  delhi:     ['#f1c40f','#3498db','#e74c3c','#2ecc71','#9b59b6','#e91e8c'],
+  mumbai:    ['#ff6b35','#e74c3c','#3498db'],
+  bangalore: ['#9b59b6','#2ecc71'],
+  hyderabad: ['#e74c3c','#3498db','#2ecc71'],
+  chennai:   ['#3498db','#2ecc71'],
+  kolkata:   ['#3498db','#2ecc71'],
+};
 
-  grid.addEventListener('click', e => {
+function buildCityGrid() {
+  const container = $('city-grid');
+  container.innerHTML = Object.entries(METRO_SYSTEMS).map(([key, c]) => {
+    const pips = (CITY_LINE_COLORS[key] || []).map(col =>
+      `<span class="city-line-pip" style="background:${col}"></span>`
+    ).join('');
+    return `
+    <button class="city-card" data-city="${key}">
+      <div class="city-icon-bg">${c.icon}</div>
+      <div class="city-info">
+        <div class="city-name">${c.name}</div>
+        <div class="city-meta">${c.meta}</div>
+        <div class="city-lines">${pips}</div>
+      </div>
+      <svg class="city-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+    </button>`;
+  }).join('');
+
+  container.addEventListener('click', e => {
     const btn = e.target.closest('.city-card');
     if (!btn) return;
     state.city = btn.dataset.city;
-    buildStationList(state.city, 'All Lines', '');
     buildLineFilter(state.city);
+    buildStationList(state.city, 'All Lines', '');
+    $('station-search').value = '';
+    $('clear-search').hidden = true;
     goToStep(2);
-    $('station-search').focus();
+    setTimeout(() => $('station-search').focus(), 400);
   });
 }
 
-// ── Station list ──────────────────────────────────────────────────────────────
+// ── Line filter ────────────────────────────────────────────────
 function buildLineFilter(cityKey) {
   const city = METRO_SYSTEMS[cityKey];
-  const container = $('line-filter');
+  const wrap = $('line-filter');
   const lines = Object.keys(city.lines);
-  container.innerHTML = [
-    `<button class="line-btn active" data-line="All Lines">All</button>`,
-    ...lines.map(l => `<button class="line-btn" data-line="${l}" style="--lc:${city.lines[l].color}">${shortLineName(l)}</button>`),
+
+  wrap.innerHTML = [
+    `<button class="line-chip active" data-line="All Lines">All</button>`,
+    ...lines.map(l => {
+      const col = city.lines[l].color;
+      return `<button class="line-chip" data-line="${l}"
+        style="border-color:${col}44;color:${col}"
+        data-color="${col}">${shortLine(l)}</button>`;
+    }),
   ].join('');
 
-  container.querySelectorAll('.line-btn').forEach(btn => {
-    if (btn.dataset.line !== 'All Lines') {
-      btn.style.borderColor = METRO_SYSTEMS[cityKey].lines[btn.dataset.line]?.color || '';
-    }
+  wrap.querySelectorAll('.line-chip').forEach(btn => {
     btn.addEventListener('click', () => {
-      container.querySelectorAll('.line-btn').forEach(b => b.classList.remove('active'));
+      wrap.querySelectorAll('.line-chip').forEach(b => {
+        b.classList.remove('active');
+        b.style.background = '';
+        b.style.color = b.dataset.color || '';
+      });
       btn.classList.add('active');
+      btn.style.background = btn.dataset.color
+        ? btn.dataset.color + '22'
+        : '';
       buildStationList(cityKey, btn.dataset.line, $('station-search').value);
     });
   });
 }
 
-function shortLineName(name) {
+function shortLine(name) {
   return name.replace(/ Line.*$/, '').replace(/ \(.*\)$/, '');
 }
 
+// ── Station list ───────────────────────────────────────────────
 function buildStationList(cityKey, lineName, query) {
   const city = METRO_SYSTEMS[cityKey];
-  const list = $('station-list');
   const q = query.trim().toLowerCase();
-  let items = [];
+  const items = [];
 
   const lines = lineName === 'All Lines' ? Object.keys(city.lines) : [lineName];
   for (const ln of lines) {
@@ -151,130 +185,135 @@ function buildStationList(cityKey, lineName, query) {
     }
   }
 
+  const list = $('station-list');
   if (!items.length) {
-    list.innerHTML = `<div class="empty-state">No stations found</div>`;
+    list.innerHTML = `<div class="empty-state">No stations found for "${query}"</div>`;
     return;
   }
 
-  list.innerHTML = items.map((s, idx) => `
-    <button class="station-item" data-idx="${idx}">
-      <span class="line-dot" style="background:${s.lineColor};box-shadow:0 0 6px ${s.lineColor}"></span>
-      <span class="station-info">
-        <span class="station-name">${highlight(s.name, q)}</span>
-        <span class="station-line-label">${s.lineName}</span>
+  list.innerHTML = items.map((s, i) => `
+    <button class="station-item" data-idx="${i}" style="animation-delay:${Math.min(i * 0.03, 0.3)}s">
+      <span class="line-dot" style="background:${s.lineColor};box-shadow:0 0 7px ${s.lineColor}88"></span>
+      <span class="stn-info">
+        <span class="stn-name">${highlight(s.name, q)}</span>
+        <span class="stn-line-label">${s.lineName}</span>
       </span>
+      <svg class="stn-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
     </button>
   `).join('');
 
-  list.querySelectorAll('.station-item').forEach((btn, idx) => {
-    btn.addEventListener('click', () => selectStation(items[idx]));
+  list.querySelectorAll('.station-item').forEach((btn, i) => {
+    btn.addEventListener('click', () => selectStation(items[i]));
   });
 }
 
 function highlight(text, q) {
   if (!q) return text;
   const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return text.replace(re, '<mark style="background:rgba(79,142,247,0.35);color:inherit;border-radius:2px">$1</mark>');
+  return text.replace(re, '<mark>$1</mark>');
 }
 
+// ── Station selection ──────────────────────────────────────────
 function selectStation(stn) {
   state.station = stn;
-  const display = $('selected-station-display');
-  display.innerHTML = `
-    <div class="stn-name">${stn.name}</div>
-    <div class="stn-meta">
-      <span class="stn-dot" style="background:${stn.lineColor}"></span>
-      ${stn.lineName} · ${METRO_SYSTEMS[state.city].name}
-    </div>
-  `;
+  const el = $('selected-station-display');
+  el.innerHTML = `
+    <div class="selected-stn-card">
+      <span class="stn-dot-lg" style="background:${stn.lineColor};box-shadow:0 0 8px ${stn.lineColor}99"></span>
+      <div>
+        <div class="selected-stn-name">${stn.name}</div>
+        <div class="selected-stn-meta">${stn.lineName} · ${METRO_SYSTEMS[state.city].name}</div>
+      </div>
+    </div>`;
   syncSettingsUI();
   goToStep(3);
 }
 
-// ── Settings UI ───────────────────────────────────────────────────────────────
+// ── Settings sync ──────────────────────────────────────────────
 function syncSettingsUI() {
-  document.querySelectorAll('.radius-btn').forEach(btn => {
+  document.querySelectorAll('.radius-pill').forEach(btn => {
     btn.classList.toggle('active', +btn.dataset.radius === state.alertRadius);
   });
-  updateWarnDisplay();
-  $('toggle-sound').checked   = state.sound;
-  $('toggle-vibrate').checked = state.vibrate;
+  updateWarnChip();
+  $('toggle-sound').checked    = state.sound;
+  $('toggle-vibrate').checked  = state.vibrate;
   $('toggle-wakelock').checked = state.wakeLock;
 }
 
-function updateWarnDisplay() {
-  const warn = state.alertRadius * 2;
-  $('early-warning-display').textContent = warn >= 1000
-    ? `${(warn / 1000).toFixed(1)} km before your station`
-    : `${warn} m before your station`;
+function updateWarnChip() {
+  const w = state.alertRadius * 2;
+  const label = w >= 1000 ? `${(w/1000).toFixed(1)} km` : `${w} m`;
+  $('early-warning-display').innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    Early warning ${label} before station`;
 }
 
-// ── Bind setup events ─────────────────────────────────────────────────────────
+// ── Setup event bindings ───────────────────────────────────────
 function bindSetupEvents() {
   $('back-to-step1').addEventListener('click', () => goToStep(1));
+  $('back-to-step1-2').addEventListener('click', () => goToStep(1));
   $('back-to-step2').addEventListener('click', () => goToStep(2));
 
   const search = $('station-search');
   const clearBtn = $('clear-search');
   search.addEventListener('input', () => {
     clearBtn.hidden = !search.value;
-    const activeLine = $('line-filter').querySelector('.line-btn.active')?.dataset.line || 'All Lines';
+    const activeLine = $('line-filter').querySelector('.line-chip.active')?.dataset.line || 'All Lines';
     buildStationList(state.city, activeLine, search.value);
   });
   clearBtn.addEventListener('click', () => {
     search.value = '';
     clearBtn.hidden = true;
-    const activeLine = $('line-filter').querySelector('.line-btn.active')?.dataset.line || 'All Lines';
+    const activeLine = $('line-filter').querySelector('.line-chip.active')?.dataset.line || 'All Lines';
     buildStationList(state.city, activeLine, '');
     search.focus();
   });
 
-  document.querySelectorAll('.radius-btn').forEach(btn => {
+  document.querySelectorAll('.radius-pill').forEach(btn => {
     btn.addEventListener('click', () => {
       state.alertRadius = +btn.dataset.radius;
-      document.querySelectorAll('.radius-btn').forEach(b => b.classList.toggle('active', b === btn));
-      updateWarnDisplay();
+      document.querySelectorAll('.radius-pill').forEach(b => b.classList.toggle('active', b === btn));
+      updateWarnChip();
     });
   });
 
-  $('toggle-sound').addEventListener('change', e => { state.sound = e.target.checked; savePrefs(); });
-  $('toggle-vibrate').addEventListener('change', e => { state.vibrate = e.target.checked; savePrefs(); });
+  $('toggle-sound').addEventListener('change',    e => { state.sound    = e.target.checked; savePrefs(); });
+  $('toggle-vibrate').addEventListener('change',  e => { state.vibrate  = e.target.checked; savePrefs(); });
   $('toggle-wakelock').addEventListener('change', e => { state.wakeLock = e.target.checked; savePrefs(); });
 
   $('start-tracking').addEventListener('click', startTracking);
 }
 
-// ── Tracking ──────────────────────────────────────────────────────────────────
+// ── Tracking ───────────────────────────────────────────────────
 function startTracking() {
   if (!state.station) return;
-  if (!navigator.geolocation) {
-    showGeoError('Geolocation is not supported by your browser.');
-    return;
-  }
+  if (!navigator.geolocation) { alert('Geolocation not supported.'); return; }
+
   savePrefs();
   state.warningFired = false;
   state.alarmFired   = false;
   state.watching     = true;
 
-  // Warm up AudioContext inside the user-gesture handler so autoplay policy allows it
+  // Warm up audio inside user gesture
   try { getAudioCtx().resume(); } catch (_) {}
 
   showScreen(trackingScreen);
   $('destination-name').textContent = state.station.name;
   $('alert-radius-display').textContent = state.alertRadius >= 1000
-    ? `${(state.alertRadius / 1000).toFixed(1)} km`
+    ? `${(state.alertRadius/1000).toFixed(1)} km`
     : `${state.alertRadius} m`;
   $('alert-arm-badge').hidden = false;
 
   initMap();
   requestWakeLock();
   requestNotifPermission();
-
   setStatus('locating', 'Locating…');
 
   state.watchId = navigator.geolocation.watchPosition(
-    onPosition,
-    onGeoError,
+    onPosition, onGeoError,
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
   );
 }
@@ -284,6 +323,7 @@ function stopTracking() {
   state.watchId = null;
   state.watching = false;
   stopAlarm();
+  stopVibration();
   releaseWakeLock();
   overlay.classList.add('hidden');
   showScreen(setupScreen);
@@ -291,11 +331,7 @@ function stopTracking() {
 
 function onPosition(pos) {
   const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-  state.currentLat = lat;
-  state.currentLng = lng;
   const dist = haversine(lat, lng, state.station.lat, state.station.lng);
-  state.currentDist = dist;
-
   setStatus('tracking', 'Tracking');
   updateDistanceUI(dist, accuracy);
   updateMap(lat, lng);
@@ -303,66 +339,60 @@ function onPosition(pos) {
 }
 
 function onGeoError(err) {
-  const msgs = ['', 'Location permission denied.', 'Position unavailable.', 'Location request timed out.'];
+  const msgs = ['', 'Location access denied.', 'Position unavailable.', 'GPS timed out.'];
   setStatus('locating', msgs[err.code] || 'Location error');
 }
 
-// ── Distance UI ───────────────────────────────────────────────────────────────
+// ── Distance UI ────────────────────────────────────────────────
 function updateDistanceUI(dist, accuracy) {
-  const [dVal, dUnit] = formatDist(dist);
+  const [dVal, dUnit] = fmtDist(dist);
   $('ring-distance').textContent = dVal;
-  $('ring-unit').textContent = dUnit;
+  $('ring-unit').textContent     = dUnit;
   $('accuracy-value').textContent = accuracy ? `±${Math.round(accuracy)}m` : '—';
+  $('eta-value').textContent = fmtTime(dist / (30 / 3.6));
 
-  // Ring progress: 0% at alertRadius*3, 100% at 0m
-  const maxDist = state.alertRadius * 3;
-  const progress = Math.max(0, Math.min(1, 1 - dist / maxDist));
-  const circumference = 289;
-  const offset = circumference * (1 - progress);
+  // Ring fill (circumference 314 for r=50)
+  const maxD = state.alertRadius * 3;
+  const pct  = Math.max(0, Math.min(1, 1 - dist / maxD));
+  const offset = 314 * (1 - pct);
   const ring = $('ring-progress');
+  const glow = $('ring-glow');
   ring.style.strokeDashoffset = offset;
+  glow.style.strokeDashoffset = offset;
 
-  // Colour shift as approaching
+  // Colour states
   if (dist <= state.alertRadius) {
-    ring.style.stroke = 'var(--danger)';
-    $('ring-distance').style.color = 'var(--danger)';
+    ring.style.stroke = 'var(--red)';
+    glow.style.stroke = 'var(--red)';
+    $('ring-distance').style.color = 'var(--red)';
   } else if (dist <= state.alertRadius * 2) {
-    ring.style.stroke = 'var(--warning)';
-    $('ring-distance').style.color = 'var(--warning)';
+    ring.style.stroke = 'var(--amber)';
+    glow.style.stroke = 'var(--amber)';
+    $('ring-distance').style.color = 'var(--amber)';
   } else {
-    ring.style.stroke = 'var(--accent)';
-    $('ring-distance').style.color = 'var(--text)';
+    ring.style.stroke = 'var(--blue)';
+    glow.style.stroke = 'var(--blue)';
+    $('ring-distance').style.color = '';
   }
-
-  // ETA — assume average metro travel + walk: 30 km/h
-  const speed = 30 / 3.6; // m/s
-  const eta = dist / speed;
-  $('eta-value').textContent = formatTime(eta);
 }
 
-function formatDist(m) {
-  if (m >= 1000) return [(m / 1000).toFixed(1), 'km'];
-  return [Math.round(m), 'm'];
+function fmtDist(m) {
+  return m >= 1000 ? [(m/1000).toFixed(1), 'km'] : [Math.round(m), 'm'];
 }
-
-function formatTime(secs) {
+function fmtTime(secs) {
   if (!isFinite(secs)) return '—';
   const min = Math.round(secs / 60);
-  if (min < 1) return '< 1 min';
+  if (min < 1)  return '< 1 min';
   if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60), m = min % 60;
-  return `${h}h ${m}m`;
+  return `${Math.floor(min/60)}h ${min%60}m`;
 }
 
-// ── Alerts ────────────────────────────────────────────────────────────────────
+// ── Alerts ─────────────────────────────────────────────────────
 function checkAlerts(dist) {
-  const warnAt = state.alertRadius * 2;
-
-  if (!state.warningFired && dist <= warnAt && dist > state.alertRadius) {
+  if (!state.warningFired && dist <= state.alertRadius * 2 && dist > state.alertRadius) {
     state.warningFired = true;
     triggerWarning(dist);
   }
-
   if (!state.alarmFired && dist <= state.alertRadius) {
     state.alarmFired = true;
     triggerAlarm(dist);
@@ -370,44 +400,42 @@ function checkAlerts(dist) {
 }
 
 function triggerWarning(dist) {
-  const [dVal, dUnit] = formatDist(dist);
-  setStatus('near', `Warning — ${dVal}${dUnit} away`);
-  if (state.vibrate) doVibrate([200, 150, 200]);
-  if (state.sound) playTone('warning');
-  showSystemNotif('⚠️ Approaching Station', `${state.station.name} is ${dVal}${dUnit} away.`);
+  const [d, u] = fmtDist(dist);
+  setStatus('near', `Warning — ${d}${u} away`);
+  if (state.vibrate) doVibrate([200, 100, 200]);
+  if (state.sound)   playTone('warning');
+  showSystemNotif('⚠️ Approaching Station', `${state.station.name} is ${d}${u} away.`);
   showOverlay('warning', dist);
 }
 
 function triggerAlarm(dist) {
-  const [dVal, dUnit] = formatDist(dist);
-  setStatus('near', `ARRIVING — ${dVal}${dUnit}`);
+  const [d, u] = fmtDist(dist);
+  setStatus('near', `ARRIVING — ${d}${u}`);
   if (state.vibrate) startVibration([500, 200, 500, 200, 500, 200, 500]);
-  if (state.sound) startAlarm();
-  showSystemNotif('🚨 Arriving at Station!', `${state.station.name} — Get ready!`);
+  if (state.sound)   startAlarm();
+  showSystemNotif('🚨 Arriving!', `${state.station.name} — Get ready to exit!`);
   showOverlay('arrival', dist);
 }
 
-// ── Overlay ───────────────────────────────────────────────────────────────────
+// ── Overlay ────────────────────────────────────────────────────
 function showOverlay(type, dist) {
-  const [dVal, dUnit] = formatDist(dist);
+  const [d, u] = fmtDist(dist);
   overlay.className = `overlay type-${type}`;
-  $('alert-icon').textContent   = type === 'arrival' ? '🚨' : '⚠️';
-  $('alert-title').textContent  = type === 'arrival' ? 'ARRIVING!' : 'APPROACHING';
-  $('alert-msg').textContent    = type === 'arrival' ? 'Get ready to exit!' : 'Your station is near.';
+  $('alert-icon').textContent    = type === 'arrival' ? '🚨' : '⚠️';
+  $('alert-title').textContent   = type === 'arrival' ? 'ARRIVING!' : 'APPROACHING';
+  $('alert-msg').textContent     = type === 'arrival' ? 'Get ready to exit!' : 'Your station is near.';
   $('alert-station').textContent = state.station.name;
-  $('alert-dist').textContent   = `${dVal} ${dUnit} away`;
+  $('alert-dist').textContent    = `${d} ${u} away`;
   overlay.classList.remove('hidden');
 }
 
-function bindOverlayEvents() {
-  $('btn-dismiss').addEventListener('click', () => {
-    overlay.classList.add('hidden');
-    stopAlarm();
-    stopVibration();
-  });
+function dismissAlert() {
+  overlay.classList.add('hidden');
+  stopAlarm();
+  stopVibration();
 }
 
-// ── Audio (Web Audio API — plays through earphones) ───────────────────────────
+// ── Audio (Web Audio API — routes through earphones) ───────────
 function getAudioCtx() {
   if (!state.audioCtx) {
     state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -420,7 +448,7 @@ function playTone(type) {
     const ctx = getAudioCtx();
     ctx.resume().then(() => {
       if (type === 'warning') {
-        _beep(ctx, 880, 0, 0.5, 0.7);
+        _beep(ctx, 880, 0,   0.5, 0.7);
         _beep(ctx, 1100, 0.4, 0.5, 0.7);
       }
     });
@@ -432,13 +460,12 @@ function startAlarm() {
   state.alarmPlaying = true;
   _alarmLoop();
 }
-
 function _alarmLoop() {
   if (!state.alarmPlaying) return;
   try {
     const ctx = getAudioCtx();
     ctx.resume().then(() => {
-      // Two alternating tones — cuts through even ambient noise
+      // Sawtooth wave — cuts through ambient noise, noticeable through earphones
       const pattern = [960, 0.18, 720, 0.18, 960, 0.18, 720, 0.18, 1200, 0.28];
       let t = 0;
       for (let i = 0; i < pattern.length; i += 2) {
@@ -449,123 +476,95 @@ function _alarmLoop() {
     });
   } catch (_) {}
 }
-
-function _beep(ctx, freq, startDelay, dur, vol) {
+function _beep(ctx, freq, delay, dur, vol) {
   try {
-    const osc = ctx.createOscillator();
+    const osc  = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'sawtooth'; // harsh, attention-grabbing
+    osc.type = 'sawtooth';
     osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, ctx.currentTime + startDelay);
-    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + startDelay + 0.015);
-    gain.gain.setValueAtTime(vol, ctx.currentTime + startDelay + dur - 0.015);
-    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + startDelay + dur);
+    const t0 = ctx.currentTime + delay;
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(vol, t0 + 0.015);
+    gain.gain.setValueAtTime(vol, t0 + dur - 0.015);
+    gain.gain.linearRampToValueAtTime(0, t0 + dur);
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.start(ctx.currentTime + startDelay);
-    osc.stop(ctx.currentTime + startDelay + dur);
+    osc.start(t0);
+    osc.stop(t0 + dur);
   } catch (_) {}
 }
-
 function stopAlarm() {
   state.alarmPlaying = false;
   if (state.alarmTimer) { clearTimeout(state.alarmTimer); state.alarmTimer = null; }
 }
 
-// ── Vibration ─────────────────────────────────────────────────────────────────
+// ── Vibration ──────────────────────────────────────────────────
 let _vibTimer = null;
-
 function doVibrate(pattern) {
   if (navigator.vibrate) navigator.vibrate(pattern);
 }
-
 function startVibration(pattern) {
   if (!navigator.vibrate) return;
   const loop = () => {
     navigator.vibrate(pattern);
-    _vibTimer = setTimeout(loop, pattern.reduce((a, b) => a + b, 0) + 300);
+    _vibTimer = setTimeout(loop, pattern.reduce((a,b)=>a+b,0) + 400);
   };
   loop();
 }
-
 function stopVibration() {
   if (_vibTimer) { clearTimeout(_vibTimer); _vibTimer = null; }
   if (navigator.vibrate) navigator.vibrate(0);
 }
 
-// ── Wake Lock ─────────────────────────────────────────────────────────────────
+// ── Wake Lock ──────────────────────────────────────────────────
 async function requestWakeLock() {
-  if (!state.wakeLock) return;
+  if (!state.wakeLock || !('wakeLock' in navigator)) return;
   try {
-    if ('wakeLock' in navigator) {
-      state.wakeLockSentinel = await navigator.wakeLock.request('screen');
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && state.watching) requestWakeLock();
-      }, { once: false });
-    }
+    state.wakeLockSentinel = await navigator.wakeLock.request('screen');
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && state.watching) requestWakeLock();
+    });
   } catch (_) {}
 }
-
 function releaseWakeLock() {
-  if (state.wakeLockSentinel) {
-    state.wakeLockSentinel.release().catch(() => {});
-    state.wakeLockSentinel = null;
-  }
+  if (state.wakeLockSentinel) { state.wakeLockSentinel.release().catch(()=>{}); state.wakeLockSentinel = null; }
 }
 
-// ── System Notifications ──────────────────────────────────────────────────────
+// ── Notifications ──────────────────────────────────────────────
 async function requestNotifPermission() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') {
-    const banner = $('notif-prompt');
-    banner.classList.remove('hidden');
-    $('notif-allow').addEventListener('click', async () => {
-      banner.classList.add('hidden');
-      await Notification.requestPermission();
-    }, { once: true });
-    $('notif-deny').addEventListener('click', () => banner.classList.add('hidden'), { once: true });
-  }
+  if (!('Notification' in window) || Notification.permission !== 'default') return;
+  const banner = $('notif-prompt');
+  banner.classList.remove('hidden');
+  $('notif-allow').addEventListener('click', async () => {
+    banner.classList.add('hidden');
+    await Notification.requestPermission();
+  }, { once: true });
+  $('notif-deny').addEventListener('click', () => banner.classList.add('hidden'), { once: true });
 }
-
 function showSystemNotif(title, body) {
   if (Notification.permission === 'granted') {
-    try {
-      new Notification(title, { body, icon: '/icons/icon.svg', tag: 'metro-alert', renotify: true });
-    } catch (_) {}
+    try { new Notification(title, { body, icon: '/icons/icon.svg', tag: 'metro-alert', renotify: true }); }
+    catch (_) {}
   }
 }
 
-// ── Map (Leaflet) ─────────────────────────────────────────────────────────────
+// ── Map ────────────────────────────────────────────────────────
 function initMap() {
-  if (state.map) {
-    state.map.remove();
-    state.map = null;
-    state.userMarker = null;
-    state.destMarker = null;
-    state.routeLine  = null;
-  }
-
+  if (state.map) { state.map.remove(); state.map = null; state.userMarker = null; state.destMarker = null; state.routeLine = null; }
   const map = L.map('map', { zoomControl: true, attributionControl: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© OpenStreetMap',
-  }).addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-  // Destination marker
   const destIcon = L.divIcon({
     html: `<div style="
-      width:18px;height:18px;border-radius:50%;
-      background:${state.station.lineColor || '#4f8ef7'};
+      width:16px;height:16px;border-radius:50%;
+      background:${state.station.lineColor||'#2563EB'};
       border:3px solid white;
-      box-shadow:0 2px 8px rgba(0,0,0,0.5)
+      box-shadow:0 2px 10px ${state.station.lineColor||'#2563EB'}99
     "></div>`,
-    className: '',
-    iconAnchor: [9, 9],
+    className: '', iconAnchor: [8,8],
   });
   state.destMarker = L.marker([state.station.lat, state.station.lng], { icon: destIcon })
-    .bindPopup(`<b>${state.station.name}</b>`)
-    .addTo(map);
-
+    .bindPopup(`<b>${state.station.name}</b>`).addTo(map);
   map.setView([state.station.lat, state.station.lng], 14);
   state.map = map;
 }
@@ -575,71 +574,51 @@ function updateMap(lat, lng) {
   const userIcon = L.divIcon({
     html: `<div style="
       width:14px;height:14px;border-radius:50%;
-      background:#4f8ef7;border:3px solid white;
-      box-shadow:0 0 0 4px rgba(79,142,247,0.3)
+      background:#2563EB;border:3px solid white;
+      box-shadow:0 0 0 6px rgba(37,99,235,0.25)
     "></div>`,
-    className: '',
-    iconAnchor: [7, 7],
+    className: '', iconAnchor: [7,7],
   });
-  if (!state.userMarker) {
-    state.userMarker = L.marker([lat, lng], { icon: userIcon }).addTo(state.map);
-  } else {
-    state.userMarker.setLatLng([lat, lng]);
-    state.userMarker.setIcon(userIcon);
-  }
+  if (!state.userMarker) state.userMarker = L.marker([lat,lng], { icon: userIcon }).addTo(state.map);
+  else { state.userMarker.setLatLng([lat,lng]); state.userMarker.setIcon(userIcon); }
 
-  // Route polyline
   if (state.routeLine) state.map.removeLayer(state.routeLine);
   state.routeLine = L.polyline(
-    [[lat, lng], [state.station.lat, state.station.lng]],
-    { color: state.station.lineColor || '#4f8ef7', weight: 3, dashArray: '6 8', opacity: 0.7 }
+    [[lat,lng],[state.station.lat,state.station.lng]],
+    { color: state.station.lineColor||'#2563EB', weight:3, dashArray:'8 10', opacity:0.7 }
   ).addTo(state.map);
 
-  // Fit both markers
-  state.map.fitBounds([[lat, lng], [state.station.lat, state.station.lng]], { padding: [40, 40] });
+  state.map.fitBounds([[lat,lng],[state.station.lat,state.station.lng]], { padding:[50,50] });
 }
 
-// ── Haversine distance (metres) ────────────────────────────────────────────────
+// ── Haversine ──────────────────────────────────────────────────
 function haversine(lat1, lng1, lat2, lng2) {
   const R = 6371e3;
-  const f1 = lat1 * Math.PI / 180, f2 = lat2 * Math.PI / 180;
-  const df = (lat2 - lat1) * Math.PI / 180;
-  const dl = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const f1 = lat1*Math.PI/180, f2 = lat2*Math.PI/180;
+  const df = (lat2-lat1)*Math.PI/180, dl = (lng2-lng1)*Math.PI/180;
+  const a  = Math.sin(df/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// ── Screen transitions ────────────────────────────────────────────────────────
+// ── Screen switch ──────────────────────────────────────────────
 function showScreen(el) {
   [setupScreen, trackingScreen].forEach(s => s.classList.remove('active'));
   el.classList.add('active');
 }
 
-// ── Status line ───────────────────────────────────────────────────────────────
+// ── Status ─────────────────────────────────────────────────────
 function setStatus(type, text) {
-  const dot = $('status-dot');
-  dot.className = `status-dot ${type}`;
+  $('status-dot').className = `live-dot ${type}`;
   $('status-text').textContent = text;
 }
 
-// ── Geo error message ─────────────────────────────────────────────────────────
-function showGeoError(msg) {
-  const existing = document.querySelector('.gps-error');
-  if (existing) existing.remove();
-  const el = document.createElement('div');
-  el.className = 'gps-error';
-  el.textContent = msg;
-  $('step-3').appendChild(el);
-}
-
-// ── Tracking stop ─────────────────────────────────────────────────────────────
+// ── Tracking events ────────────────────────────────────────────
 function bindTrackingEvents() {
   $('stop-tracking').addEventListener('click', stopTracking);
 }
 
-// ── PWA Install ───────────────────────────────────────────────────────────────
+// ── PWA Install ────────────────────────────────────────────────
 let _deferredPrompt = null;
-
 function maybeShowInstallBanner() {
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
@@ -648,10 +627,7 @@ function maybeShowInstallBanner() {
     banner.classList.remove('hidden');
     $('install-allow').addEventListener('click', async () => {
       banner.classList.add('hidden');
-      if (_deferredPrompt) {
-        _deferredPrompt.prompt();
-        _deferredPrompt = null;
-      }
+      if (_deferredPrompt) { _deferredPrompt.prompt(); _deferredPrompt = null; }
     }, { once: true });
     $('install-deny').addEventListener('click', () => banner.classList.add('hidden'), { once: true });
   });
