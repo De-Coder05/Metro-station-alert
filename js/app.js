@@ -27,6 +27,7 @@ const state = {
 // ── DOM shorthand ──────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
+const permsScreen    = $('perms-screen');
 const setupScreen    = $('setup-screen');
 const trackingScreen = $('tracking-screen');
 const overlay        = $('alert-overlay');
@@ -41,7 +42,95 @@ document.addEventListener('DOMContentLoaded', () => {
   registerSW();
   maybeShowInstallBanner();
   syncSettingsUI();
+  initPermsScreen();
 });
+
+// ── Permissions onboarding ─────────────────────────────────────
+async function initPermsScreen() {
+  // Skip onboarding if user already went through it
+  const done = localStorage.getItem('metro-perms-done');
+
+  // Check current permission states
+  const locState   = await queryPerm('geolocation');
+  const notifState = 'Notification' in window ? Notification.permission : 'denied';
+
+  // If both already granted, go straight to setup
+  if (done && locState === 'granted' && notifState === 'granted') {
+    showScreen(setupScreen);
+    return;
+  }
+
+  // Update badges to reflect current state
+  setBadge('perm-loc-badge',   locState);
+  setBadge('perm-notif-badge', notifState);
+
+  // Show permissions screen (already active by default in HTML)
+  $('grant-perms-btn').addEventListener('click', async () => {
+    $('grant-perms-btn').disabled = true;
+    $('grant-perms-btn').querySelector('.cta-label').textContent = 'Requesting…';
+
+    // 1. Location — triggers the browser prompt
+    const locGranted = await requestLocation();
+    setBadge('perm-loc-badge', locGranted ? 'granted' : 'denied');
+
+    // 2. Notifications — triggers the browser prompt
+    const notifGranted = await requestNotifications();
+    setBadge('perm-notif-badge', notifGranted ? 'granted' : 'denied');
+
+    // 3. Audio — warm up AudioContext (requires user gesture, no separate prompt)
+    try { getAudioCtx().resume(); } catch (_) {}
+
+    await delay(500); // brief pause so user sees the granted badges
+    localStorage.setItem('metro-perms-done', '1');
+    showScreen(setupScreen);
+  });
+
+  $('skip-perms-btn').addEventListener('click', () => {
+    localStorage.setItem('metro-perms-done', '1');
+    showScreen(setupScreen);
+  });
+}
+
+async function queryPerm(name) {
+  try {
+    const res = await navigator.permissions.query({ name });
+    return res.state; // 'granted' | 'denied' | 'prompt'
+  } catch (_) { return 'prompt'; }
+}
+
+async function requestLocation() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(false); return; }
+    navigator.geolocation.getCurrentPosition(
+      () => resolve(true),
+      () => resolve(false),
+      { timeout: 10000, maximumAge: 0 }
+    );
+  });
+}
+
+async function requestNotifications() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  const result = await Notification.requestPermission().catch(() => 'denied');
+  return result === 'granted';
+}
+
+function setBadge(id, state) {
+  const el = $(id);
+  if (!el) return;
+  const map = {
+    granted: ['✓ Granted',  'perm-badge-granted'],
+    denied:  ['✗ Denied',   'perm-badge-denied'],
+    prompt:  ['Required',   'perm-badge-required'],
+    default: ['Required',   'perm-badge-required'],
+  };
+  const [text, cls] = map[state] || map.prompt;
+  el.textContent = text;
+  el.className = `perm-badge ${cls}`;
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Service Worker ─────────────────────────────────────────────
 function registerSW() {
@@ -309,7 +398,6 @@ function startTracking() {
 
   initMap();
   requestWakeLock();
-  requestNotifPermission();
   setStatus('locating', 'Locating…');
 
   state.watchId = navigator.geolocation.watchPosition(

@@ -19,6 +19,79 @@
 </head>
 <body>
 
+<!-- ══════════════════════════════════ PERMISSIONS SCREEN ══ -->
+<div id="perms-screen" class="screen active">
+  <div class="perms-wrap">
+
+    <div class="perms-hero">
+      <div class="perms-app-icon">
+        <svg width="44" height="44" viewBox="0 0 28 28" fill="none">
+          <rect x="3" y="9" width="22" height="14" rx="3" stroke="#fff" stroke-width="1.8"/>
+          <rect x="6" y="12" width="7" height="5" rx="1.5" fill="#4f8ef7"/>
+          <rect x="15" y="12" width="7" height="5" rx="1.5" fill="#4f8ef7"/>
+          <circle cx="8.5" cy="24" r="1.8" fill="#4f8ef7"/>
+          <circle cx="19.5" cy="24" r="1.8" fill="#4f8ef7"/>
+          <path d="M14 4 L14 8" stroke="#ff6b35" stroke-width="2" stroke-linecap="round"/>
+          <path d="M11 5.5 L14 4 L17 5.5" stroke="#ff6b35" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </div>
+      <h1 class="perms-title">Metro Alert</h1>
+      <p class="perms-subtitle">To wake you up at your station, the app needs a few permissions before you start.</p>
+    </div>
+
+    <div class="perms-card">
+
+      <div class="perm-row" id="perm-row-location">
+        <div class="perm-icon-box perm-blue">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+        </div>
+        <div class="perm-text">
+          <div class="perm-name">Location</div>
+          <div class="perm-desc">Tracks your position to detect when you're near your station</div>
+        </div>
+        <div class="perm-badge perm-badge-required" id="perm-loc-badge">Required</div>
+      </div>
+
+      <div class="perm-divider"></div>
+
+      <div class="perm-row" id="perm-row-notif">
+        <div class="perm-icon-box perm-orange">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        </div>
+        <div class="perm-text">
+          <div class="perm-name">Notifications</div>
+          <div class="perm-desc">Sends alerts when your station is near, even with screen off</div>
+        </div>
+        <div class="perm-badge perm-badge-required" id="perm-notif-badge">Required</div>
+      </div>
+
+      <div class="perm-divider"></div>
+
+      <div class="perm-row">
+        <div class="perm-icon-box perm-green">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+        </div>
+        <div class="perm-text">
+          <div class="perm-name">Sound</div>
+          <div class="perm-desc">Alarm plays directly through earphones or speakers — no prompt needed</div>
+        </div>
+        <div class="perm-badge perm-badge-auto">Auto</div>
+      </div>
+
+    </div>
+
+    <button class="cta-btn" id="grant-perms-btn">
+      <span class="cta-label">Allow &amp; Continue</span>
+      <span class="cta-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </span>
+    </button>
+
+    <button class="ghost-btn" id="skip-perms-btn">Skip for now</button>
+
+  </div>
+</div><!-- #perms-screen -->
+
 <!-- ── Animated Background ─────────────────────────────────── -->
 <div class="bg-layer" aria-hidden="true">
   <div class="orb orb-a"></div>
@@ -28,7 +101,7 @@
 </div>
 
 <!-- ══════════════════════════════════════ SETUP SCREEN ══ -->
-<div id="setup-screen" class="screen active">
+<div id="setup-screen" class="screen">
 
   <!-- Brand Header -->
   <header class="brand-header">
