@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#060A14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Get woken up when your metro station is near.">
+  <title>Metro Alert</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ── Animated Background ─────────────────────────────────── -->
+<div class="bg-layer" aria-hidden="true">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
+  <div class="grid-lines"></div>
+</div>
+
+<!-- ══════════════════════════════════════ SETUP SCREEN ══ -->
+<div id="setup-screen" class="screen active">
+
+  <!-- Brand Header -->
+  <header class="brand-header">
+    <div class="brand-logo-wrap">
+      <div class="brand-icon-box">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <rect x="3" y="9" width="22" height="14" rx="3" stroke="#fff" stroke-width="1.8"/>
+          <rect x="6" y="12" width="7" height="5" rx="1.5" fill="#4f8ef7"/>
+          <rect x="15" y="12" width="7" height="5" rx="1.5" fill="#4f8ef7"/>
+          <circle cx="8.5" cy="24" r="1.8" fill="#4f8ef7"/>
+          <circle cx="19.5" cy="24" r="1.8" fill="#4f8ef7"/>
+          <path d="M14 4 L14 8" stroke="#ff6b35" stroke-width="2" stroke-linecap="round"/>
+          <path d="M11 5.5 L14 4 L17 5.5" stroke="#ff6b35" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">Metro Alert</div>
+        <div class="brand-tagline">Wake up at your station</div>
+      </div>
+    </div>
+    <div class="brand-badge">LIVE</div>
+  </header>
+
+  <!-- Step Progress Bar -->
+  <div class="progress-bar-wrap">
+    <div class="progress-bar" id="progress-bar" style="width:33%"></div>
+  </div>
+
+  <!-- ── Panel 1: City ── -->
+  <div class="step-panel active" id="step-1">
+    <div class="panel-title-row">
+      <h2 class="panel-title">Select city</h2>
+      <span class="step-tag">1 of 3</span>
+    </div>
+    <div class="city-list" id="city-grid"></div>
+  </div>
+
+  <!-- ── Panel 2: Station ── -->
+  <div class="step-panel" id="step-2">
+    <div class="panel-title-row">
+      <button class="back-btn" id="back-to-step1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      </button>
+      <h2 class="panel-title">Destination</h2>
+      <span class="step-tag">2 of 3</span>
+    </div>
+
+    <div class="search-wrap">
+      <svg class="search-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" id="station-search" placeholder="Search station…" autocomplete="off" spellcheck="false">
+      <button id="clear-search" class="clear-btn" hidden aria-label="Clear">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="line-chips" id="line-filter"></div>
+    <div class="station-list" id="station-list"></div>
+    <button class="ghost-btn" id="back-to-step1-2">← Back to cities</button>
+  </div>
+
+  <!-- ── Panel 3: Settings ── -->
+  <div class="step-panel" id="step-3">
+    <div class="panel-title-row">
+      <button class="back-btn" id="back-to-step2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      </button>
+      <h2 class="panel-title">Set alert</h2>
+      <span class="step-tag">3 of 3</span>
+    </div>
+
+    <div id="selected-station-display"></div>
+
+    <div class="settings-block">
+      <div class="settings-label">Alert me when I'm within</div>
+      <div class="radius-row">
+        <button class="radius-pill" data-radius="300">300 m</button>
+        <button class="radius-pill active" data-radius="500">500 m</button>
+        <button class="radius-pill" data-radius="800">800 m</button>
+        <button class="radius-pill" data-radius="1000">1 km</button>
+      </div>
+    </div>
+
+    <div class="warn-chip" id="early-warning-display">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Early warning 1 km before station
+    </div>
+
+    <div class="toggles-card">
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Sound alarm</div>
+          <div class="toggle-hint">Plays through earphones &amp; speakers</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="toggle-sound" checked><span class="sw-track"><span class="sw-thumb"></span></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Vibration</div>
+          <div class="toggle-hint">Repeats until you dismiss</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="toggle-vibrate" checked><span class="sw-track"><span class="sw-thumb"></span></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Keep screen on</div>
+          <div class="toggle-hint">Wake Lock while tracking</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="toggle-wakelock" checked><span class="sw-track"><span class="sw-thumb"></span></span></label>
+      </div>
+    </div>
+
+    <button class="cta-btn" id="start-tracking">
+      <span class="cta-label">Start Alert</span>
+      <span class="cta-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </span>
+    </button>
+  </div>
+
+</div><!-- #setup-screen -->
+
+
+<!-- ════════════════════════════════ TRACKING SCREEN ══ -->
+<div id="tracking-screen" class="screen">
+
+  <div class="track-topbar">
+    <button class="stop-pill" id="stop-tracking">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      Stop
+    </button>
+    <div class="live-chip">
+      <span class="live-dot" id="status-dot"></span>
+      <span id="status-text">Locating…</span>
+    </div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+  </div>
+
+  <div class="bottom-sheet">
+    <div class="sheet-handle"></div>
+
+    <div class="dest-bar">
+      <div class="dest-icon-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+      </div>
+      <div class="dest-label" id="destination-name">—</div>
+    </div>
+
+    <div class="metrics-wrap">
+      <!-- Distance ring -->
+      <div class="ring-wrap">
+        <svg class="ring-svg" viewBox="0 0 120 120">
+          <circle class="ring-track" cx="60" cy="60" r="50"/>
+          <circle class="ring-fill" id="ring-progress" cx="60" cy="60" r="50"/>
+          <circle class="ring-glow" id="ring-glow" cx="60" cy="60" r="50"/>
+        </svg>
+        <div class="ring-inner">
+          <span class="ring-val" id="ring-distance">—</span>
+          <span class="ring-unit" id="ring-unit">m</span>
+          <span class="ring-sub">away</span>
+        </div>
+      </div>
+
+      <!-- Metric cards -->
+      <div class="metric-cards">
+        <div class="metric-card">
+          <div class="metric-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="metric-val" id="eta-value">—</div>
+          <div class="metric-label">ETA</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <div class="metric-val" id="accuracy-value">—</div>
+          <div class="metric-label">Accuracy</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="armed-pill" id="alert-arm-badge" hidden>
+      <span class="armed-dot"></span>
+      Armed · alerting at <strong id="alert-radius-display"></strong>
+    </div>
+  </div>
+
+</div><!-- #tracking-screen -->
+
+
+<!-- ══════════════════════════════════ ALERT OVERLAY ══ -->
+<div id="alert-overlay" class="overlay hidden">
+  <div class="overlay-rings" aria-hidden="true">
+    <div class="ov-ring r1"></div>
+    <div class="ov-ring r2"></div>
+    <div class="ov-ring r3"></div>
+  </div>
+  <div class="overlay-card">
+    <div class="ov-icon" id="alert-icon">⚠️</div>
+    <div class="ov-title" id="alert-title">APPROACHING</div>
+    <div class="ov-sub" id="alert-msg">Your station is near</div>
+    <div class="ov-station" id="alert-station"></div>
+    <div class="ov-dist" id="alert-dist"></div>
+    <button class="dismiss-btn" id="btn-dismiss">DISMISS ALARM</button>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════ TOASTS ══ -->
+<div id="notif-prompt" class="toast hidden">
+  <div class="toast-icon-wrap">🔔</div>
+  <div class="toast-body">
+    <div class="toast-title">Enable notifications</div>
+    <div class="toast-sub">Get alerted even when screen is off</div>
+  </div>
+  <div class="toast-btns">
+    <button id="notif-deny" class="toast-skip">Skip</button>
+    <button id="notif-allow" class="toast-ok">Allow</button>
+  </div>
+</div>
+
+<div id="install-banner" class="toast hidden">
+  <div class="toast-icon-wrap">📲</div>
+  <div class="toast-body">
+    <div class="toast-title">Install app</div>
+    <div class="toast-sub">Add to home screen for offline use</div>
+  </div>
+  <div class="toast-btns">
+    <button id="install-deny" class="toast-skip">Later</button>
+    <button id="install-allow" class="toast-ok">Install</button>
+  </div>
+</div>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLc=" crossorigin=""></script>
+<script src="js/stations.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
