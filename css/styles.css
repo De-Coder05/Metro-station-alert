@@ -1131,6 +1131,39 @@ mark {
   box-shadow: 0 4px 12px var(--blue-glow);
 }
 
+/* GPS error banner (inside bottom sheet) */
+#gps-error-banner {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.22);
+  border-radius: var(--r-lg);
+  padding: 12px 14px;
+  animation: toastIn 0.3s var(--ease-spring) both;
+}
+.gps-err-icon { font-size: 20px; flex-shrink: 0; }
+.gps-err-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.gps-retry-btn {
+  padding: 7px 14px;
+  background: var(--red);
+  color: white;
+  border: none;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* ══════════════════════════════════════════════════════════
    MAP OVERRIDES (dark theme)
    ══════════════════════════════════════════════════════════ */

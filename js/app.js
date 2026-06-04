@@ -379,14 +379,16 @@ function bindSetupEvents() {
 // ── Tracking ───────────────────────────────────────────────────
 function startTracking() {
   if (!state.station) return;
-  if (!navigator.geolocation) { alert('Geolocation not supported.'); return; }
+  if (!navigator.geolocation) {
+    showGpsError('Geolocation is not supported by this browser. Open the app in Chrome on Android.');
+    return;
+  }
 
   savePrefs();
   state.warningFired = false;
   state.alarmFired   = false;
   state.watching     = true;
 
-  // Warm up audio inside user gesture
   try { getAudioCtx().resume(); } catch (_) {}
 
   showScreen(trackingScreen);
@@ -395,14 +397,27 @@ function startTracking() {
     ? `${(state.alertRadius/1000).toFixed(1)} km`
     : `${state.alertRadius} m`;
   $('alert-arm-badge').hidden = false;
+  clearGpsError();
 
   initMap();
   requestWakeLock();
-  setStatus('locating', 'Locating…');
+  startWatching();
+}
+
+function startWatching() {
+  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+  setStatus('locating', 'Waiting for GPS…');
+  $('ring-distance').textContent = '···';
+  $('ring-unit').textContent = '';
 
   state.watchId = navigator.geolocation.watchPosition(
-    onPosition, onGeoError,
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    onPosition,
+    onGeoError,
+    {
+      enableHighAccuracy: true,
+      maximumAge: 30000,   // accept a cached fix (e.g. from perms screen) immediately
+      timeout: Infinity,   // never time-out — keep waiting for signal
+    }
   );
 }
 
@@ -413,11 +428,13 @@ function stopTracking() {
   stopAlarm();
   stopVibration();
   releaseWakeLock();
+  clearGpsError();
   overlay.classList.add('hidden');
   showScreen(setupScreen);
 }
 
 function onPosition(pos) {
+  clearGpsError();
   const { latitude: lat, longitude: lng, accuracy } = pos.coords;
   const dist = haversine(lat, lng, state.station.lat, state.station.lng);
   setStatus('tracking', 'Tracking');
@@ -427,8 +444,33 @@ function onPosition(pos) {
 }
 
 function onGeoError(err) {
-  const msgs = ['', 'Location access denied.', 'Position unavailable.', 'GPS timed out.'];
-  setStatus('locating', msgs[err.code] || 'Location error');
+  const msgs = {
+    1: 'Location access denied. Open browser Settings and allow Location for this site.',
+    2: 'GPS signal not available. Move to an open area or check that Location is on.',
+    3: 'GPS timed out. Make sure Location is enabled on your phone.',
+  };
+  const msg = msgs[err.code] || 'Could not get your location. Please try again.';
+  setStatus('locating', 'GPS error');
+  showGpsError(msg);
+}
+
+function showGpsError(msg) {
+  clearGpsError();
+  const el = document.createElement('div');
+  el.id = 'gps-error-banner';
+  el.innerHTML = `
+    <div class="gps-err-icon">📍</div>
+    <div class="gps-err-text">${msg}</div>
+    <button class="gps-retry-btn" id="gps-retry-btn">Retry</button>`;
+  document.querySelector('.bottom-sheet').appendChild(el);
+  $('gps-retry-btn').addEventListener('click', () => {
+    clearGpsError();
+    startWatching();
+  });
+}
+
+function clearGpsError() {
+  document.getElementById('gps-error-banner')?.remove();
 }
 
 // ── Distance UI ────────────────────────────────────────────────
