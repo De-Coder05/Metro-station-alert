@@ -690,7 +690,7 @@ function haversine(lat1, lng1, lat2, lng2) {
 
 // ── Screen switch ──────────────────────────────────────────────
 function showScreen(el) {
-  [setupScreen, trackingScreen].forEach(s => s.classList.remove('active'));
+  [permsScreen, setupScreen, trackingScreen].forEach(s => s.classList.remove('active'));
   el.classList.add('active');
 }
 
