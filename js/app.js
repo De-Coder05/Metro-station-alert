@@ -11,6 +11,9 @@ const state = {
   // runtime
   watching: false,
   watchId: null,
+  watchIdFallback: null,
+  fallbackTimer: null,
+  gotFirstFix: false,
   wakeLockSentinel: null,
   alarmPlaying: false,
   warningFired: false,
@@ -402,28 +405,46 @@ function startTracking() {
   initMap();
   requestWakeLock();
   startWatching();
+
+  // After the CSS opacity transition (300ms), force Leaflet to recalculate
+  // tile dimensions — without this the map stays black on mobile.
+  setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 350);
 }
 
 function startWatching() {
-  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+  // Clear any existing watches and timers
+  if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; }
+  if (state.watchIdFallback !== null) { navigator.geolocation.clearWatch(state.watchIdFallback); state.watchIdFallback = null; }
+  if (state.fallbackTimer) { clearTimeout(state.fallbackTimer); state.fallbackTimer = null; }
+  state.gotFirstFix = false;
+
   setStatus('locating', 'Waiting for GPS…');
   $('ring-distance').textContent = '···';
   $('ring-unit').textContent = '';
 
+  // Primary: high-accuracy GPS (may take 20-60s for first satellite lock)
   state.watchId = navigator.geolocation.watchPosition(
-    onPosition,
-    onGeoError,
-    {
-      enableHighAccuracy: true,
-      maximumAge: 30000,   // accept a cached fix (e.g. from perms screen) immediately
-      timeout: Infinity,   // never time-out — keep waiting for signal
-    }
+    onPosition, onGeoError,
+    { enableHighAccuracy: true, maximumAge: 30000, timeout: Infinity }
   );
+
+  // Fallback: after 8s with no fix, also start a network-based watch
+  // (WiFi/cell tower, fast but less accurate) — whichever fires first wins.
+  state.fallbackTimer = setTimeout(() => {
+    if (!state.gotFirstFix && state.watching) {
+      state.watchIdFallback = navigator.geolocation.watchPosition(
+        onPosition,
+        () => {}, // silent — primary watch handles errors
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 }
+      );
+    }
+  }, 8000);
 }
 
 function stopTracking() {
-  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
-  state.watchId = null;
+  if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; }
+  if (state.watchIdFallback !== null) { navigator.geolocation.clearWatch(state.watchIdFallback); state.watchIdFallback = null; }
+  if (state.fallbackTimer) { clearTimeout(state.fallbackTimer); state.fallbackTimer = null; }
   state.watching = false;
   stopAlarm();
   stopVibration();
@@ -435,6 +456,12 @@ function stopTracking() {
 
 function onPosition(pos) {
   clearGpsError();
+  // On first fix, cancel the fallback watch — primary GPS has taken over
+  if (!state.gotFirstFix) {
+    state.gotFirstFix = true;
+    if (state.fallbackTimer) { clearTimeout(state.fallbackTimer); state.fallbackTimer = null; }
+    if (state.watchIdFallback !== null) { navigator.geolocation.clearWatch(state.watchIdFallback); state.watchIdFallback = null; }
+  }
   const { latitude: lat, longitude: lng, accuracy } = pos.coords;
   const dist = haversine(lat, lng, state.station.lat, state.station.lng);
   setStatus('tracking', 'Tracking');
