@@ -1,5 +1,16 @@
-const CACHE = 'metro-alert-v1';
-const ASSETS = ['/', '/index.html', '/css/styles.css', '/js/stations.js', '/js/app.js'];
+const CACHE = 'metro-alert-v2';
+const BASE = self.location.pathname.replace(/sw\.js$/, '');
+const ASSETS = [
+  BASE,
+  BASE + 'index.html',
+  BASE + 'css/styles.css',
+  BASE + 'js/stations.js',
+  BASE + 'js/app.js',
+  BASE + 'icons/icon.svg',
+  BASE + 'icons/icon-192.png',
+  BASE + 'icons/icon-512.png',
+  BASE + 'manifest.json',
+];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -29,8 +40,8 @@ self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : { title: 'Metro Alert', body: 'Your station is near!' };
   e.waitUntil(self.registration.showNotification(data.title, {
     body: data.body,
-    icon: '/icons/icon.svg',
-    badge: '/icons/icon.svg',
+    icon: BASE + 'icons/icon.svg',
+    badge: BASE + 'icons/icon.svg',
     vibrate: [500, 200, 500, 200, 500],
     requireInteraction: true,
     tag: 'metro-alert',
